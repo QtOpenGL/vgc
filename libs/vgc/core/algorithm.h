@@ -1,4 +1,4 @@
-// Copyright 2017 The VGC Developers
+// Copyright 2018 The VGC Developers
 // See the COPYRIGHT file at the top-level directory of this distribution
 // and at https://github.com/vgc/vgc/blob/master/COPYRIGHT
 //
@@ -22,21 +22,31 @@
 
 #include <algorithm>
 #include <cassert>
+#include <numeric>
 #include <string>
+#include <vector>
 #include <vgc/core/api.h>
+#include <vgc/core/logging.h>
 
 namespace vgc {
 namespace core {
 
-/// Clamps the given value \p v between \p min and \p max.
-/// The behavior is undefined if \p min is greater than \p max.
-/// This is the same as C++17 std::clamp.
+/// Returns the given value clamped to the interval [min, max]. If max < min,
+/// then a warning is issued and the value is clamped to [max, min] instead.
 ///
 template<typename T>
-const T& clamp(const T& v, const T& min, const T& max)
+const T& clamp(const T& value, const T& min, const T& max)
 {
-    assert(!(max < min));
-    return (v < min) ? min : (max < v) ? max : v;
+    if (max < min) {
+        warning()
+            << "Warning: vgc::core::clamp("
+            << "value=" << value << ", min=" << min << ", max=" << max << ") "
+            << "called with max < min\n";
+        return (value < max) ? max : (min < value) ? min : value;
+    }
+    else {
+        return (value < min) ? min : (max < value) ? max : value;
+    }
 }
 
 /// Returns what "zero" means for the given type. When this generic function is
@@ -44,7 +54,7 @@ const T& clamp(const T& v, const T& min, const T& max)
 ///
 /// It is important to specialize vgc::core::zero for your own arithmetic types
 /// when their default constructors do not perform zero-initialization (See
-/// vgc::geometry::Vec2d for an example).
+/// vgc::core::Vec2d for an example).
 ///
 /// Below is an example of how to specialize vgc::core::zero for your own types:
 ///
@@ -111,16 +121,73 @@ T average(const std::vector<T>& v)
     }
 }
 
-/// Returns whether the given vector contains the given value.
+/// Returns the vector index corresponding to the given vector iterator \p it,
+/// or -1 if pos == v.end();
+///
+template<typename T, typename It>
+int toIndex(const std::vector<T>& v, It pos)
+{
+    return pos == v.end() ? -1 : pos - v.begin();
+}
+
+/// Returns the vector iterator corresponding to the given index \p i. Returns
+/// v.end() if i = -1.
+///
+template<typename T>
+typename std::vector<T>::const_iterator
+toIterator(const std::vector<T>& v, int i)
+{
+    return i == -1 ? v.end() : v.begin() + i;
+}
+
+/// Returns the index to the first element in the given vector \p v which is
+/// equal to \p x, or -1 if there is no such element.
+///
+template<typename T>
+int find(const std::vector<T>& v, const T& x)
+{
+    auto it = std::find(v.begin(), v.end(), x);
+    return toIndex(v, it);
+}
+
+/// Returns whether the given vector \p v contains the given value \p x. Writes
+/// out in \p i the index of the first occurence of \p x, or -1 if \p v does
+/// not contain \p x.
+///
+template<typename T>
+bool contains(const std::vector<T>& v, const T& x, int& i)
+{
+    i = find(v, x);
+    return i != -1;
+}
+
+/// Returns whether the given vector \p v contains the given value \p x.
 ///
 template<typename T>
 bool contains(const std::vector<T>& v, const T& x)
 {
-    return std::find(v.begin(), v.end(), x) != v.end();
+    int i;
+    return contains(v, x, i);
 }
 
-/// Returns the index of the first element in the vector that is (strictly) greater than
-/// value, or the size of the vector if no such element is found.
+/// Removes from the given vector \p v the first element which is equal to \p
+/// x, if any. Returns whether an element was removed.
+///
+template<typename T>
+bool removeOne(std::vector<T>& v, const T& x)
+{
+    int i;
+    if (contains(v, x, i)) {
+        v.erase(toIterator(v, i));
+        return true;
+    }
+    else {
+        return false;
+    }
+}
+
+/// Returns the index of the first element in the vector that is (strictly)
+/// greater than value, or -1 if no such element is found.
 ///
 /// The vector must be at least partially ordered, that is it must satisfy:
 /// v[i] < v[j] => i < j.
@@ -144,8 +211,8 @@ bool contains(const std::vector<T>& v, const T& x)
 template<typename T>
 int upper_bound(const std::vector<T>& v, const T& x)
 {
-    auto it = std::upper_bound(v.cbegin(), v.cend(), x);
-    return std::distance(v.cbegin(), it);
+    auto it = std::upper_bound(v.begin(), v.end(), x);
+    return toIndex(v, it);
 }
 
 /// Returns a copy of the string \p s where all occurences of

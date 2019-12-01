@@ -1,4 +1,4 @@
-// Copyright 2017 The VGC Developers
+// Copyright 2018 The VGC Developers
 // See the COPYRIGHT file at the top-level directory of this distribution
 // and at https://github.com/vgc/vgc/blob/master/COPYRIGHT
 //
@@ -16,12 +16,12 @@
 
 #include <pybind11/pybind11.h>
 #include <vgc/geometry/curve.h>
-#include <vgc/geometry/vec2d.h>
+#include <vgc/core/vec2d.h>
 
 namespace py = pybind11;
 using vgc::geometry::Curve;
 using vgc::geometry::CurveSharedPtr;
-using vgc::geometry::Vec2d;
+using vgc::core::Vec2d;
 
 void wrap_curve(py::module& m)
 {

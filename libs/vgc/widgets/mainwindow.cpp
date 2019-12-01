@@ -1,4 +1,4 @@
-// Copyright 2017 The VGC Developers
+// Copyright 2018 The VGC Developers
 // See the COPYRIGHT file at the top-level directory of this distribution
 // and at https://github.com/vgc/vgc/blob/master/COPYRIGHT
 //
@@ -16,118 +16,291 @@
 
 #include <vgc/widgets/mainwindow.h>
 
-#include <QMenuBar>
-#include <QToolBar>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QMessageBox>
+#include <QStandardPaths>
+
+#include <vgc/core/logging.h>
+#include <vgc/widgets/menubar.h>
+#include <vgc/widgets/qtutil.h>
 
 namespace vgc {
 namespace widgets {
 
 MainWindow::MainWindow(
-    scene::Scene* scene,
+    /*dom::Document* document,*/
     core::PythonInterpreter* interpreter,
     QWidget* parent) :
 
     QMainWindow(parent),
-    scene_(scene),
+    /*document_(document),*/
     interpreter_(interpreter)
 {
+    document_ = vgc::dom::Document::create();
+    vgc::dom::Element::create(document_.get(), "vgc");
+
     setupWidgets_();
-    setupCentralWidget_();
-    setupDocks_();
     setupActions_();
     setupMenus_();
-    setupToolBars_();
     setupConnections_();
 
-    // Show maximized at startup
-    // XXX This should be a user preference
-    showMaximized();
+    viewer_->startLoggingUnder(performanceMonitor_->log());
 }
 
 MainWindow::~MainWindow()
 {
-
+    viewer_->stopLoggingUnder(performanceMonitor_->log());
 }
 
 void MainWindow::onColorChanged(const core::Color& newColor)
 {
-    scene_->setNewCurveColor(newColor);
+    viewer_->setCurrentColor(newColor);
+}
+
+void MainWindow::onRenderCompleted_()
+{
+    performanceMonitor_->refresh();
+}
+
+void MainWindow::open()
+{
+    // Get which directory the dialog should display first
+    QString dir =
+        filename_.isEmpty() ?
+        QStandardPaths::writableLocation(QStandardPaths::HomeLocation) :
+        QFileInfo(filename_).dir().path();
+
+    // Set which existing files to show in the dialog
+    QString extension = ".vgci";
+    QString filters = tr("VGC Illustration Files (*%1)").arg(extension);
+
+    // Create the dialog
+    QFileDialog dialog(this, tr("Open..."), dir, filters);
+
+    // Allow to select existing files only
+    dialog.setFileMode(QFileDialog::ExistingFile);
+
+    // Set acceptMode to "Open" (as opposed to "Save")
+    dialog.setAcceptMode(QFileDialog::AcceptOpen);
+
+    // Exec the dialog as modal
+    int result = dialog.exec();
+
+    // Actually open the file
+    if (result == QDialog::Accepted) {
+        QStringList selectedFiles = dialog.selectedFiles();
+        if (selectedFiles.size() == 0) {
+            core::warning() << "No file selected; file not opened";
+        }
+        if (selectedFiles.size() == 1) {
+            QString selectedFile = selectedFiles.first();
+            if (!selectedFile.isEmpty()) {
+                // Open
+                filename_ = selectedFile;
+                open_();
+            }
+            else {
+                core::warning() << "Empty file path selected; file not opened";
+            }
+        }
+        else {
+            core::warning() << "More than one file selected; file not opened";
+        }
+    }
+    else {
+        // User willfully cancelled the operation
+        // => nothing to do, not even a warning.
+    }
+}
+
+void MainWindow::save()
+{
+    if (filename_.isEmpty()) {
+        saveAs();
+    }
+    else {
+        save_();
+    }
+}
+
+void MainWindow::saveAs()
+{
+    // Get which directory the dialog should display first
+    QString dir =
+        filename_.isEmpty() ?
+        QStandardPaths::writableLocation(QStandardPaths::HomeLocation) :
+        QFileInfo(filename_).dir().path();
+
+    // Set which existing files to show in the dialog
+    QString extension = ".vgci";
+    QString filters = tr("VGC Illustration Files (*%1)").arg(extension);
+
+    // Create the dialog
+    QFileDialog dialog(this, tr("Save As..."), dir, filters);
+
+    // Allow to select non-existing files
+    dialog.setFileMode(QFileDialog::AnyFile);
+
+    // Set acceptMode to "Save" (as opposed to "Open")
+    dialog.setAcceptMode(QFileDialog::AcceptSave);
+
+    // Exec the dialog as modal
+    int result = dialog.exec();
+
+    // Actually save the file
+    if (result == QDialog::Accepted) {
+        QStringList selectedFiles = dialog.selectedFiles();
+        if (selectedFiles.size() == 0) {
+            core::warning() << "No file selected; file not saved";
+        }
+        if (selectedFiles.size() == 1) {
+            QString selectedFile = selectedFiles.first();
+            if (!selectedFile.isEmpty()) {
+                // Append file extension if missing. Examples:
+                //   drawing.vgci -> drawing.vgci
+                //   drawing      -> drawing.vgci
+                //   drawing.     -> drawing..vgci
+                //   drawing.vgc  -> drawing.vgc.vgci
+                //   drawingvgci  -> drawingvgci.vgci
+                //   .vgci        -> .vgci
+                if (!selectedFile.endsWith(extension)) {
+                    selectedFile.append(extension);
+                }
+
+                // Save
+                filename_ = selectedFile;
+                save_();
+            }
+            else {
+                core::warning() << "Empty file path selected; file not saved";
+            }
+        }
+        else {
+            core::warning() << "More than one file selected; file not saved";
+        }
+    }
+    else {
+        // User willfully cancelled the operation
+        // => nothing to do, not even a warning.
+    }
+
+    // Note: On some window managers, modal dialogs such as this Save As dialog
+    // causes "QXcbConnection: XCB error: 3 (BadWindow)" errors. See:
+    //   https://github.com/vgc/vgc/issues/6
+    //   https://bugreports.qt.io/browse/QTBUG-56893
+}
+
+void MainWindow::open_()
+{
+    // XXX TODO ask save current document
+
+    try {
+        document_ = dom::Document::open(fromQt(filename_));
+        viewer_->setDocument(document());
+    }
+    catch (const dom::FileError& e) {
+        QMessageBox::critical(this, "Error Opening File", e.what());
+    }
+}
+
+void MainWindow::save_()
+{
+    try {
+        document_->save(fromQt(filename_));
+    }
+    catch (const dom::FileError& e) {
+        QMessageBox::critical(this, "Error Saving File", e.what());
+    }
 }
 
 void MainWindow::setupWidgets_()
 {
-    viewer_ = new OpenGLViewer(scene_);
+    // OpenGLViewer
+    viewer_ = new OpenGLViewer(document());
+
+    // Toolbar (must be created after viewer; see onColorChanged())
+    toolbar_ = new Toolbar();
+    onColorChanged(toolbar_->color());
+    connect(toolbar_, &Toolbar::colorChanged, this, &MainWindow::onColorChanged);
+
+    // Console
     console_ = new Console(interpreter_);
-}
+    console_->hide();
 
-void MainWindow::setupCentralWidget_()
-{
-    setCentralWidget(viewer_);
-}
+    // CentralWidget
+    centralWidget_ = new CentralWidget(viewer_, toolbar_, console_);
 
-void MainWindow::setupDocks_()
-{
-    dockConsole_ = new QDockWidget(tr("Python Console"));
-    dockConsole_->setWidget(console_);
-    dockConsole_->setFeatures(QDockWidget::DockWidgetClosable);
-    dockConsole_->setTitleBarWidget(new QWidget());
-    addDockWidget(Qt::BottomDockWidgetArea, dockConsole_);
-    dockConsole_->hide();
+    // Performance Monitor
+    performanceMonitor_ = new PerformanceMonitor();
+    performanceMonitorPanel_ = centralWidget_->addPanel(tr("Performance Monitor"), performanceMonitor_);
+    performanceMonitorPanel_->toggleViewAction()->setChecked(false);
+
+    // Set central widget
+    setCentralWidget(centralWidget_);
 }
 
 void MainWindow::setupActions_()
 {
+    actionOpen_ = new QAction(tr("&Open"), this);
+    actionOpen_->setStatusTip(tr("Open an existing document."));
+    actionOpen_->setShortcut(QKeySequence::Open);
+    connect(actionOpen_, SIGNAL(triggered()), this, SLOT(open()));
+
+    actionSave_ = new QAction(tr("&Save"), this);
+    actionSave_->setStatusTip(tr("Save the current document."));
+    actionSave_->setShortcut(QKeySequence::Save);
+    connect(actionSave_, SIGNAL(triggered()), this, SLOT(save()));
+
+    actionSaveAs_ = new QAction(tr("Save As..."), this);
+    actionSaveAs_->setStatusTip(tr("Save the current document under a new name."));
+    actionSaveAs_->setShortcut(QKeySequence(Qt::CTRL + Qt::SHIFT + Qt::Key_S));
+    connect(actionSaveAs_, SIGNAL(triggered()), this, SLOT(saveAs()));
+    // Note: we don't use QKeySequence::SaveAs because it is undefined on
+    // Windows and KDE. XXX TODO: Have a proper Shortcut manager. Might be
+    // best to not use any of Qt default shortcuts.
+
     actionQuit_ = new QAction(tr("&Quit"), this);
     actionQuit_->setStatusTip(tr("Quit VGC Illustration."));
     actionQuit_->setShortcut(QKeySequence::Quit);
     connect(actionQuit_, SIGNAL(triggered()), this, SLOT(close()));
 
-    actionToggleConsoleView_ = dockConsole_->toggleViewAction();
+    actionTogglePerformanceMonitorView_ = performanceMonitorPanel_->toggleViewAction();
+    actionTogglePerformanceMonitorView_->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_M));
+
+    actionToggleConsoleView_ = centralWidget_->consoleToggleViewAction();
     actionToggleConsoleView_->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_P));
 }
 
 
 void MainWindow::setupMenus_()
 {
+    MenuBar* menuBar_ = new MenuBar();
+
     menuFile_ = new QMenu(tr("&File"));
+    menuFile_->addAction(actionOpen_);
+    menuFile_->addAction(actionSave_);
+    menuFile_->addAction(actionSaveAs_);
+    menuFile_->addSeparator();
     menuFile_->addAction(actionQuit_);
-    menuBar()->addMenu(menuFile_);
+    menuBar_->addMenu(menuFile_);
 
     menuView_ = new QMenu(tr("&View"));
+    menuView_->addAction(actionTogglePerformanceMonitorView_);
     menuView_->addAction(actionToggleConsoleView_);
-    menuBar()->addMenu(menuView_);
-}
+    menuBar_->addMenu(menuView_);
 
-void MainWindow::setupToolBars_()
-{
-    int iconWidth = 48;
-    QSize iconSize(iconWidth,iconWidth);
-
-    toolBar_ = addToolBar(tr("Toolbar"));
-    toolBar_->setOrientation(Qt::Vertical);
-    toolBar_->setMovable(false);
-    toolBar_->setIconSize(iconSize);
-    addToolBar(Qt::LeftToolBarArea, toolBar_);
-
-    colorToolButton_ = new ColorToolButton();
-    colorToolButton_->setToolTip(tr("Current color (C)"));
-    colorToolButton_->setStatusTip(tr("Click to open the color selector"));
-    colorToolButton_->setIconSize(iconSize);
-    colorToolButton_->updateIcon();
-
-    colorToolButtonAction_ = toolBar_->addWidget(colorToolButton_);
-    colorToolButtonAction_->setText(tr("Color"));
-    colorToolButtonAction_->setToolTip(tr("Color (C)"));
-    colorToolButtonAction_->setStatusTip(tr("Click to open the color selector"));
-    colorToolButtonAction_->setShortcut(QKeySequence(Qt::Key_C));
-    colorToolButtonAction_->setShortcutContext(Qt::ApplicationShortcut);
-
-    connect(colorToolButtonAction_, SIGNAL(triggered()), colorToolButton_, SLOT(click()));
-    connect(colorToolButton_, &ColorToolButton::colorChanged, this, &MainWindow::onColorChanged);
+    setMenuBar(menuBar_);
 }
 
 void MainWindow::setupConnections_()
 {
+    connect(viewer_, &OpenGLViewer::renderCompleted,
+            this, &MainWindow::onRenderCompleted_);
+
+    // XXX TODO
+
+    /*
     // Refresh the viewer when the scene changes
     scene_->changed.connect(std::bind(
         (void (OpenGLViewer::*)()) &OpenGLViewer::update, viewer_));
@@ -164,6 +337,7 @@ void MainWindow::setupConnections_()
         &scene::Scene::pauseSignals, scene_));
     interpreter_->runFinished.connect(std::bind(
         &scene::Scene::resumeSignals, scene_, true));
+        */
 }
 
 } // namespace widgets

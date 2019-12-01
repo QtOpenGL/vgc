@@ -1,4 +1,4 @@
-// Copyright 2017 The VGC Developers
+// Copyright 2018 The VGC Developers
 // See the COPYRIGHT file at the top-level directory of this distribution
 // and at https://github.com/vgc/vgc/blob/master/COPYRIGHT
 //
@@ -69,6 +69,8 @@ public:
     ColorDialog* colorDialog();
 
 Q_SIGNALS:
+    /// This signal is emitted when the color changed.
+    ///
     void colorChanged(const core::Color& newColor);
 
 private Q_SLOTS:

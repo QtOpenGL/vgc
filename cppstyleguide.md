@@ -1,14 +1,13 @@
 # VGC C++ Style Guide
 
-Try to follow these guidelines as much as reasonable. Don't overthink it (too much). 
-If something is not addressed here, follow the 
+If something is not addressed here, follow the
 [Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html).
-If something is not addressed there, favour readability.
-In case of doubt, follow your heart :)
+If something is not addressed there, favor readability.
 
 ## Header Files
 
-Headers should be self-contained.
+Headers should be self-contained (i.e., they must be compilable by themselves). 
+This is enforced by including each header first in their corresponding cpp file.
 
 Headers should be guarded with:
 ```
@@ -30,13 +29,12 @@ In cpp files, include corresponding header first, then all other header files as
 
 Within each "group" (e.g., Qt includes), order alphabetically.
 
-Don't rely on includes from other headers. For example, if you need both 
-`vgc::geometry::Curve` and `vgc::geometry::Vec2d`, include both 
+Don't rely on includes from other headers. For example, if you need both
+`vgc::geometry::Curve` and `vgc::geometry::Vec2d`, include both
 `<vgc/geometry/curve.h>` and `<vgc/geometry/vec2d.h>`
 
 Never use `using somenamespace::SomeClass;` in a header file, and more
-importantly never use `using somenamespace` in a header file. Yes, this is annoying, 
-and I hate it too. Please blame C++, not me.
+importantly never use `using somenamespace` in a header file.
 
 ## Scoping
 
@@ -75,11 +73,10 @@ Prefer `enum class` rather than C-style `enum`.
 
 ## Naming
 
-Prefer long descriptive names than abbreviations, but use common sense: 
-if a name is expected to be used extremely often (e.g., Vec2d), then shortening makes sense.
+Naming matters: if you add functions/classes to the public API, expect a discussion about their names.
 
-Don't overthink naming for anything which is private. However, expect a discussion during
-a pull request for all names which are added to the public API.
+Prefer long descriptive names than abbreviations, but use common sense:
+if a name is expected to be used extremely often (e.g., Vec2d), then shortening makes sense.
 
 Capitalization:
 ```
@@ -92,7 +89,7 @@ privateFunctionName_()
 privateMemberVariableName_
 localVariable
 VGC_MYLIB_PUBLICMACRO
-VGC_MYLIB_PRIVATEMACRO
+VGC_MYLIB_PRIVATEMACRO_
 enum class EnumName {
     EnumValue1,
     EnumValue2
@@ -103,11 +100,34 @@ enum class EnumName {
 
 Indent with 4 spaces. No tabs.
 
-Good: `Foo* foo` , `Foo& foo`, `const Foo* foo` , `const Foo& foo`,
+Function declarations and definitions:
 
-Bad: `Foo *foo`, `Foo const& foo`
+```
+void byPtr(Foo* foo);
+void byRef(Foo* foo);
+void byConstPtr(const Foo* foo);
+void byConstRef(const Foo& foo);
+```
 
-Curly brackets:
+```
+void functionDefinition()
+{
+    thisIsPreferred();
+}
+```
+
+```
+void butForShortInlineFunctions() {
+    thisIsOkayToo();
+}
+```
+
+```
+// Or even a one liner if fits within 80 characters
+int getX() { return x_; }
+```
+
+Conditional blocks:
 
 ```
 if (condition) {
@@ -117,6 +137,18 @@ if (condition) {
 else {
     forConditional();
     blocks();
+}
+```
+
+```
+for (int i = 0; i < n; ++i) {
+    doSomething(i);
+}
+```
+
+```
+for (Node* child : node->children()) {
+    doSomething(child);
 }
 ```
 
@@ -148,7 +180,6 @@ if (veryShortOneLiner4) whereYouHave();
 if (veryShortOneLiner5) manyOfThem();
 ```
 
-
 ```
 if (longBody ||
     multilineCondition)
@@ -157,41 +188,41 @@ if (longBody ||
 }
 ```
 
+Class definitions:
+
 ```
-class TypicalClass
+class TypicalClass : public BaseClass
 {
 public:
     void thisIsPreferred();
-    
+
 private:
     int becauseOneMoreLines_;
     int doesntChangeMuch_;
-}
+};
 ```
 
 ```
 class ShortClassOrStruct {
     ThisIs fine;
-}
+};
 ```
 
-```
-void functionDefinition()
-{
-    thisIsPreferred();
-}
-```
+## Polymorphic Classes
 
-```
-void butForShortInlineFunctions() {
-    thisIsOkayToo();
-}
-```
+A class is said *polymorphic* if it declares or inherits at least one virtual method.
 
-```
-// Or even a one liner for short one-liners
-int getX() { return x_; }
-```
+The destructor of any polymorphic class must be either public and virtual, or protected and
+non-virtual, in order to ensure that deleting derived objects through pointers to base
+is well-defined. Always define this destructor out-of-line (= in a *.cpp file), in order
+to satisfy the following
+[Clang's Coding Standard](http://llvm.org/docs/CodingStandards.html#provide-a-virtual-method-anchor-for-classes-in-headers):
+
+> **Provide a Virtual Method Anchor for Classes in Headers**
+> If a class is defined in a header file and has a vtable (either it has virtual methods 
+> or it derives from classes with virtual methods), it must always have at least one out-of-line
+> virtual method in the class. Without this, the compiler will copy the vtable and RTTI into
+> every .o file that #includes the header, bloating .o file sizes and increasing link times.
 
 ## Other
 

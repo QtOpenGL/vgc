@@ -1,4 +1,4 @@
-// Copyright 2017 The VGC Developers
+// Copyright 2018 The VGC Developers
 // See the COPYRIGHT file at the top-level directory of this distribution
 // and at https://github.com/vgc/vgc/blob/master/COPYRIGHT
 //
@@ -14,15 +14,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <pybind11/pybind11.h>
+#include <vgc/core/wraps/common.h>
 
-namespace py = pybind11;
+void wrap_charutil(py::module& m);
+void wrap_color(py::module& m);
+void wrap_doublearray(py::module& m);
+void wrap_exceptions(py::module& m);
+void wrap_io(py::module& m);
+void wrap_limits(py::module& m);
+void wrap_object(py::module& m);
+void wrap_stopwatch(py::module& m);
+void wrap_stringutil(py::module& m);
+void wrap_vec2d(py::module& m);
+void wrap_vec2darray(py::module& m);
 
-void wrap_timer(py::module& m);
-
-PYBIND11_PLUGIN(core)
-{
-    py::module m("cire", "Documentation of the 'core' module");
-    wrap_timer(m);
-    return m.ptr();
+PYBIND11_MODULE(core, m) {
+    wrap_charutil(m);
+    wrap_color(m);
+    wrap_doublearray(m);
+    wrap_exceptions(m);
+    wrap_io(m);
+    wrap_limits(m);
+    wrap_object(m);
+    wrap_stopwatch(m);
+    wrap_stringutil(m);
+    wrap_vec2d(m);
+    wrap_vec2darray(m);
 }

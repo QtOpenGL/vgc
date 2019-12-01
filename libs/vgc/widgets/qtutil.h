@@ -1,4 +1,4 @@
-// Copyright 2017 The VGC Developers
+// Copyright 2018 The VGC Developers
 // See the COPYRIGHT file at the top-level directory of this distribution
 // and at https://github.com/vgc/vgc/blob/master/COPYRIGHT
 //
@@ -24,28 +24,44 @@
 
 #include <string>
 #include <QColor>
+#include <QPointF>
 #include <QString>
-#include <vgc/widgets/api.h>
 #include <vgc/core/color.h>
+#include <vgc/core/vec2d.h>
+#include <vgc/widgets/api.h>
 
 namespace vgc {
 namespace widgets {
 
 /// Converts the given UTF-8 encoded std::string \p s into a QString.
 ///
+VGC_WIDGETS_API
 QString toQt(const std::string& s);
 
 /// Converts the given QString \p s into a UTF-8 encoded std::string.
 ///
+VGC_WIDGETS_API
 std::string fromQt(const QString& s);
 
 /// Converts the given vgc::core::Color \p c into a QColor.
 ///
+VGC_WIDGETS_API
 QColor toQt(const core::Color& c);
 
 /// Converts the given QColor \p c into a vgc::core::Color.
 ///
+VGC_WIDGETS_API
 core::Color fromQt(const QColor& c);
+
+/// Converts the given vgc::core::Vec2d \p v into a QPointF.
+///
+VGC_WIDGETS_API
+QPointF toQt(const core::Vec2d& v);
+
+/// Converts the given QPointF \p v into a vgc::core::Vec2d.
+///
+VGC_WIDGETS_API
+core::Vec2d fromQt(const QPointF& v);
 
 } // namespace widgets
 } // namespace vgc

@@ -1,4 +1,4 @@
-// Copyright 2017 The VGC Developers
+// Copyright 2018 The VGC Developers
 // See the COPYRIGHT file at the top-level directory of this distribution
 // and at https://github.com/vgc/vgc/blob/master/COPYRIGHT
 //
@@ -17,14 +17,14 @@
 #ifndef VGC_GEOMETRY_BEZIERSPLINE2D_H
 #define VGC_GEOMETRY_BEZIERSPLINE2D_H
 
+#include <vgc/core/vec2d.h>
 #include <vgc/geometry/api.h>
 #include <vgc/geometry/bezierspline.h>
-#include <vgc/geometry/vec2d.h>
 
 namespace vgc {
 namespace geometry {
 
-using BezierSpline2d = BezierSpline<Vec2d>;
+using BezierSpline2d = BezierSpline<core::Vec2d>;
 
 } // namespace geometry
 } // namespace vgc

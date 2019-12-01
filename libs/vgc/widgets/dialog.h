@@ -1,4 +1,4 @@
-// Copyright 2017 The VGC Developers
+// Copyright 2018 The VGC Developers
 // See the COPYRIGHT file at the top-level directory of this distribution
 // and at https://github.com/vgc/vgc/blob/master/COPYRIGHT
 //
@@ -30,7 +30,7 @@ namespace widgets {
 /// vgc::widgets::Dialog, the position of the dialog will be preserve, even
 /// after being moved by the user.
 ///
-class Dialog : public QDialog
+class VGC_WIDGETS_API Dialog : public QDialog
 {
     Q_OBJECT
 

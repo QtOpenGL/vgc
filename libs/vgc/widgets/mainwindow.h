@@ -1,4 +1,4 @@
-// Copyright 2017 The VGC Developers
+// Copyright 2018 The VGC Developers
 // See the COPYRIGHT file at the top-level directory of this distribution
 // and at https://github.com/vgc/vgc/blob/master/COPYRIGHT
 //
@@ -20,13 +20,17 @@
 #include <QDockWidget>
 #include <QMainWindow>
 #include <QMenu>
+#include <QString>
 
 #include <vgc/core/python.h>
-#include <vgc/scene/scene.h>
+#include <vgc/dom/document.h>
 #include <vgc/widgets/api.h>
-#include <vgc/widgets/colortoolbutton.h>
+#include <vgc/widgets/centralwidget.h>
 #include <vgc/widgets/console.h>
 #include <vgc/widgets/openglviewer.h>
+#include <vgc/widgets/panel.h>
+#include <vgc/widgets/performancemonitor.h>
+#include <vgc/widgets/toolbar.h>
 
 namespace vgc {
 namespace widgets {
@@ -36,21 +40,25 @@ class VGC_WIDGETS_API MainWindow : public QMainWindow
     Q_OBJECT
 
 public:
-    MainWindow(scene::Scene* scene,
+    MainWindow(/*dom::Document* document,*/
                core::PythonInterpreter* interpreter,
                QWidget* parent = nullptr);
 
     ~MainWindow();
 
-    scene::Scene* scene() const {
-        return scene_;
+    dom::Document* document() const {
+        return document_.get();
     }
 
 private Q_SLOTS:
     void onColorChanged(const core::Color& newColor);
+    void onRenderCompleted_();
+    void open();
+    void save();
+    void saveAs();
 
 private:
-    scene::Scene* scene_;
+    dom::DocumentSharedPtr document_;
     core::PythonInterpreter* interpreter_;
 
     // XXX move what's below out of MainWindow to keep it generic.
@@ -58,28 +66,31 @@ private:
     // class such as "VgcIllustrationMainWindow".
 
     void setupWidgets_();
+    CentralWidget* centralWidget_;
+    Toolbar* toolbar_;
     OpenGLViewer* viewer_;
     Console* console_;
-
-    void setupCentralWidget_();
-
-    void setupDocks_();
-    QDockWidget* dockConsole_;
+    PerformanceMonitor* performanceMonitor_;
+    Panel* performanceMonitorPanel_;
 
     void setupActions_();
+    QAction* actionOpen_;
+    QAction* actionSave_;
+    QAction* actionSaveAs_;
     QAction* actionQuit_;
     QAction* actionToggleConsoleView_;
+    QAction* actionTogglePerformanceMonitorView_;
 
     void setupMenus_();
     QMenu* menuFile_;
     QMenu* menuView_;
 
-    void setupToolBars_();
-    QToolBar* toolBar_;
-    ColorToolButton* colorToolButton_;
-    QAction* colorToolButtonAction_;
-
     void setupConnections_();
+
+    // Saves or opens the document at the given filename
+    void open_();
+    void save_();
+    QString filename_;
 };
 
 } // namespace widgets

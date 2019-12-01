@@ -1,4 +1,4 @@
-// Copyright 2017 The VGC Developers
+// Copyright 2018 The VGC Developers
 // See the COPYRIGHT file at the top-level directory of this distribution
 // and at https://github.com/vgc/vgc/blob/master/COPYRIGHT
 //
@@ -16,8 +16,45 @@
 
 #include <vgc/core/object.h>
 
+#ifdef VGC_CORE_OBJECT_DEBUG
+    #include <iostream>
+    #include <vgc/core/stringutil.h>
+#endif
+
 namespace vgc {
 namespace core {
+
+namespace {
+void printDebugInfo_(Object* obj, const char* s)
+{
+#ifdef VGC_CORE_OBJECT_DEBUG
+    std::string info;
+    info.reserve();
+    info.append("Object ");
+    info.append(toString(obj));
+    info.append(" ");
+    info.append(s);
+    info.append(" \n");
+    std::cout << info;
+#endif
+}
+} // namespace
+
+Object::Object(const ConstructorKey&)
+{
+    printDebugInfo_(this, "constructed");
+}
+
+Object::~Object()
+{
+    printDebugInfo_(this, "constructed");
+}
+
+/* static */
+ObjectSharedPtr Object::create()
+{
+    return std::make_shared<Object>(ConstructorKey());
+}
 
 } // namespace core
 } // namespace vgc

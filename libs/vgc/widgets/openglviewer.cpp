@@ -1,4 +1,4 @@
-// Copyright 2017 The VGC Developers
+// Copyright 2018 The VGC Developers
 // See the COPYRIGHT file at the top-level directory of this distribution
 // and at https://github.com/vgc/vgc/blob/master/COPYRIGHT
 //
@@ -19,9 +19,15 @@
 #include <cassert>
 #include <cmath>
 
+#include <QBitmap>
 #include <QMouseEvent>
+#include <QPainter>
 
-#include <vgc/core/resources.h>
+#include <vgc/core/assert.h>
+#include <vgc/core/os.h>
+#include <vgc/core/paths.h>
+#include <vgc/core/stopwatch.h>
+#include <vgc/geometry/curve.h>
 #include <vgc/widgets/qtutil.h>
 
 namespace vgc {
@@ -35,11 +41,7 @@ QString shaderPath_(const std::string& name) {
     return toQt(path);
 }
 
-geometry::Vec2d toVec2d_(QMouseEvent* event) {
-    return geometry::Vec2d(event->x(), event->y());
-}
-
-QMatrix4x4 toQtMatrix(const geometry::Mat4d& m) {
+QMatrix4x4 toQtMatrix(const core::Mat4d& m) {
     return QMatrix4x4(
                (float)m(0,0), (float)m(0,1), (float)m(0,2), (float)m(0,3),
                (float)m(1,0), (float)m(1,1), (float)m(1,2), (float)m(1,3),
@@ -52,6 +54,50 @@ struct GLVertex {
     float x, y;
     GLVertex(float x, float y) : x(x), y(y) {}
 };
+
+double width_(const PointingDeviceEvent& event) {
+    const double defaultWidth = 6.0;
+    return event.hasPressure() ?
+               2 * event.pressure() * defaultWidth :
+               defaultWidth;
+}
+
+core::StringId PATH("path");
+core::StringId POSITIONS("positions");
+core::StringId WIDTHS("widths");
+core::StringId COLOR("color");
+
+void drawCrossCursor(QPainter& painter) {
+    painter.setPen(QPen(Qt::color1, 1.0));
+    painter.drawLine(16, 0, 16, 10);
+    painter.drawLine(16, 22, 16, 32);
+    painter.drawLine(0, 16, 10, 16);
+    painter.drawLine(22, 16, 32, 16);
+    painter.drawPoint(16, 16);
+}
+
+QCursor crossCursor() {
+
+    // Draw bitmap
+    QBitmap bitmap(32, 32);
+    QPainter bitmapPainter(&bitmap);
+    bitmapPainter.fillRect(0, 0, 32, 32, QBrush(Qt::color0));
+    drawCrossCursor(bitmapPainter);
+
+    // Draw mask
+    QBitmap mask(32, 32);
+    QPainter maskPainter(&mask);
+    maskPainter.fillRect(0, 0, 32, 32, QBrush(Qt::color0));
+#ifndef VGC_CORE_OS_WINDOWS
+    // Make the cursor color XOR'd on Windows, black on other platforms. Ideally,
+    // we'd prefer XOR'd on all platforms, but it's only supported on Windows.
+    // See Qt doc for QCursor(const QBitmap &bitmap, const QBitmap &mask).
+    drawCrossCursor(maskPainter);
+#endif
+
+    // Create and return cursor
+    return QCursor(bitmap, mask);
+}
 
 } // namespace
 
@@ -72,23 +118,41 @@ void OpenGLViewer::init()
     QSurfaceFormat::setDefaultFormat(format);
 }
 
-OpenGLViewer::OpenGLViewer(scene::Scene* scene, QWidget* parent) :
+OpenGLViewer::OpenGLViewer(dom::Document* document, QWidget* parent) :
     QOpenGLWidget(parent),
-    scene_(scene),
+    document_(document),
     isSketching_(false),
     isPanning_(false),
     isRotating_(false),
     isZooming_(false),
-    isTabletEvent_(false),
-    tabletPressure_(0.0),
+    mousePressed_(false),
+    tabletPressed_(false),
     polygonMode_(2),
     showControlPoints_(false),
     requestedTesselationMode_(2),
-    currentTesselationMode_(2)
+    currentTesselationMode_(2),
+    renderTask_("Render"),
+    updateTask_("Update"),
+    drawTask_("Draw")
 {
     // Set ClickFocus policy to be able to accept keyboard events (default
     // policy is NoFocus).
     setFocusPolicy(Qt::ClickFocus);
+
+    // Set cursor. For now we assume that we are in a drawing tool, and
+    // therefore use a cross cursor. In the future, each tool should specify
+    // which cursor should be drawn in the viewer.
+    setCursor(crossCursor());
+}
+
+void OpenGLViewer::setDocument(dom::Document* document)
+{
+    makeCurrent();
+    cleanupGL();
+    doneCurrent();
+
+    document_ = document;
+    update();
 }
 
 OpenGLViewer::~OpenGLViewer()
@@ -99,56 +163,127 @@ OpenGLViewer::~OpenGLViewer()
     doneCurrent();
 }
 
-double OpenGLViewer::width_() const
+QSize OpenGLViewer::minimumSizeHint() const
 {
-    const double defaultWidth = 6.0;
-    return isTabletEvent_
-           ? 2 * tabletPressure_ * defaultWidth
-           : defaultWidth;
+    return QSize(160, 120);
+}
+
+void OpenGLViewer::startLoggingUnder(core::PerformanceLog* parent)
+{
+    core::PerformanceLog* renderLog = renderTask_.startLoggingUnder(parent);
+    updateTask_.startLoggingUnder(renderLog);
+    drawTask_.startLoggingUnder(renderLog);
+}
+
+void OpenGLViewer::stopLoggingUnder(core::PerformanceLog* parent)
+{
+    core::PerformanceLogSharedPtr renderLog = renderTask_.stopLoggingUnder(parent);
+    updateTask_.stopLoggingUnder(renderLog.get());
+    drawTask_.stopLoggingUnder(renderLog.get());
 }
 
 void OpenGLViewer::mousePressEvent(QMouseEvent* event)
+{
+    if (mousePressed_ || tabletPressed_) {
+        return;
+    }
+    mousePressed_ = true;
+    pointingDeviceButtonAtPress_ = event->button();
+    pointingDevicePress(PointingDeviceEvent(event));
+}
+
+void OpenGLViewer::mouseMoveEvent(QMouseEvent* event)
+{
+    if (!mousePressed_) {
+        return;
+    }
+    pointingDeviceMove(PointingDeviceEvent(event));
+}
+
+void OpenGLViewer::mouseReleaseEvent(QMouseEvent* event)
+{
+    if (!mousePressed_ || pointingDeviceButtonAtPress_ != event->button()) {
+        return;
+    }
+    pointingDeviceRelease(PointingDeviceEvent(event));
+    mousePressed_ = false;
+}
+
+void OpenGLViewer::tabletEvent(QTabletEvent* event)
+{
+    switch(event->type()) {
+    case QEvent::TabletPress:
+        if (mousePressed_ || tabletPressed_) {
+            return;
+        }
+        tabletPressed_ = true;
+        pointingDeviceButtonAtPress_ = event->button();
+        pointingDevicePress(PointingDeviceEvent(event));
+        break;
+
+    case QEvent::TabletMove:
+        if (!tabletPressed_) {
+            return;
+        }
+        pointingDeviceMove(PointingDeviceEvent(event));
+        break;
+
+    case QEvent::TabletRelease:
+        if (!tabletPressed_ || pointingDeviceButtonAtPress_ != event->button()) {
+            return;
+        }
+        pointingDeviceRelease(PointingDeviceEvent(event));
+        tabletPressed_ = false;
+        break;
+
+    default:
+        // nothing
+        break;
+    }
+}
+
+void OpenGLViewer::pointingDevicePress(const PointingDeviceEvent& event)
 {
     if (isSketching_ || isPanning_ || isRotating_ || isZooming_) {
         return;
     }
 
-    if (event->modifiers() == Qt::NoModifier &&
-        event->button() == Qt::LeftButton)
+    if (event.modifiers() == Qt::NoModifier &&
+        event.button() == Qt::LeftButton)
     {
         isSketching_ = true;
         // XXX This is very inefficient (shouldn't use generic 4x4 matrix inversion,
         // and should be cached), but let's keep it like this for now for testing.
-        geometry::Vec2d viewCoords = toVec2d_(event);
-        geometry::Vec2d worldCoords = camera_.viewMatrix().inverse() * viewCoords;
-        scene_->startCurve(worldCoords, width_());
+        core::Vec2d viewCoords = event.pos();
+        core::Vec2d worldCoords = camera_.viewMatrix().inverse() * viewCoords;
+        startCurve_(worldCoords, width_(event));
     }
-    else if (event->modifiers() == Qt::AltModifier &&
-             event->button() == Qt::LeftButton)
+    else if (event.modifiers() == Qt::AltModifier &&
+             event.button() == Qt::LeftButton)
     {
         isRotating_ = true;
-        mousePosAtPress_ = toVec2d_(event);
+        pointingDevicePosAtPress_ = event.pos();
         cameraAtPress_ = camera_;
     }
-    else if (event->modifiers() == Qt::AltModifier &&
-             event->button() == Qt::MidButton)
+    else if (event.modifiers() == Qt::AltModifier &&
+             event.button() == Qt::MidButton)
     {
         isPanning_ = true;
-        mousePosAtPress_ = toVec2d_(event);
+        pointingDevicePosAtPress_ = event.pos();
         cameraAtPress_ = camera_;
     }
-    else if (event->modifiers() == Qt::AltModifier &&
-             event->button() == Qt::RightButton)
+    else if (event.modifiers() == Qt::AltModifier &&
+             event.button() == Qt::RightButton)
     {
         isZooming_ = true;
-        mousePosAtPress_ = toVec2d_(event);
+        pointingDevicePosAtPress_ = event.pos();
         cameraAtPress_ = camera_;
     }
 }
 
-void OpenGLViewer::mouseMoveEvent(QMouseEvent* event)
+void OpenGLViewer::pointingDeviceMove(const PointingDeviceEvent& event)
 {
-    // Note: event-button() is always NoButton for mouseMoveEvent. This is why
+    // Note: event.button() is always NoButton for move events. This is why
     // we use the variable isPanning_ and isSketching_ to remember the current
     // mouse action. In the future, we'll abstract this mechanism in a separate
     // class.
@@ -156,13 +291,13 @@ void OpenGLViewer::mouseMoveEvent(QMouseEvent* event)
     if (isSketching_) {
         // XXX This is very inefficient (shouldn't use generic 4x4 matrix inversion,
         // and should be cached), but let's keep it like this for now for testing.
-        geometry::Vec2d viewCoords = toVec2d_(event);
-        geometry::Vec2d worldCoords = camera_.viewMatrix().inverse() * viewCoords;
-        scene_->continueCurve(worldCoords, width_());
+        core::Vec2d viewCoords = event.pos();
+        core::Vec2d worldCoords = camera_.viewMatrix().inverse() * viewCoords;
+        continueCurve_(worldCoords, width_(event));
     }
     else if (isPanning_) {
-        geometry::Vec2d mousePos = toVec2d_(event);
-        geometry::Vec2d delta = mousePosAtPress_ - mousePos;
+        core::Vec2d mousePos = event.pos();
+        core::Vec2d delta = pointingDevicePosAtPress_ - mousePos;
         camera_.setCenter(cameraAtPress_.center() + delta);
         update();
     }
@@ -171,15 +306,15 @@ void OpenGLViewer::mouseMoveEvent(QMouseEvent* event)
         // XXX rotateViewSensitivity should be a user preference
         //     (the signs in front of dx and dy too)
         const double rotateViewSensitivity = 0.01;
-        geometry::Vec2d mousePos = toVec2d_(event);
-        geometry::Vec2d deltaPos = mousePosAtPress_ - mousePos;
+        core::Vec2d mousePos = event.pos();
+        core::Vec2d deltaPos = pointingDevicePosAtPress_ - mousePos;
         double deltaRotation = rotateViewSensitivity * (deltaPos.x() - deltaPos.y());
         camera_.setRotation(cameraAtPress_.rotation() + deltaRotation);
 
         // Set new camera center so that rotation center = mouse pos at press
-        geometry::Vec2d pivotViewCoords = mousePosAtPress_;
-        geometry::Vec2d pivotWorldCoords = cameraAtPress_.viewMatrix().inverse() * pivotViewCoords;
-        geometry::Vec2d pivotViewCoordsNow = camera_.viewMatrix() * pivotWorldCoords;
+        core::Vec2d pivotViewCoords = pointingDevicePosAtPress_;
+        core::Vec2d pivotWorldCoords = cameraAtPress_.viewMatrix().inverse() * pivotViewCoords;
+        core::Vec2d pivotViewCoordsNow = camera_.viewMatrix() * pivotWorldCoords;
         camera_.setCenter(camera_.center() - pivotViewCoords + pivotViewCoordsNow);
 
         update();
@@ -189,72 +324,27 @@ void OpenGLViewer::mouseMoveEvent(QMouseEvent* event)
         // XXX zoomViewSensitivity should be a user preference
         //     (the signs in front of dx and dy too)
         const double zoomViewSensitivity = 0.005;
-        geometry::Vec2d mousePos = toVec2d_(event);
-        geometry::Vec2d deltaPos = mousePosAtPress_ - mousePos;
+        core::Vec2d mousePos = event.pos();
+        core::Vec2d deltaPos = pointingDevicePosAtPress_ - mousePos;
         const double s = std::exp(zoomViewSensitivity * (deltaPos.y() - deltaPos.x()));
         camera_.setZoom(cameraAtPress_.zoom() * s);
 
         // Set new camera center so that zoom center = mouse pos at press
-        geometry::Vec2d pivotViewCoords = mousePosAtPress_;
-        geometry::Vec2d pivotWorldCoords = cameraAtPress_.viewMatrix().inverse() * pivotViewCoords;
-        geometry::Vec2d pivotViewCoordsNow = camera_.viewMatrix() * pivotWorldCoords;
+        core::Vec2d pivotViewCoords = pointingDevicePosAtPress_;
+        core::Vec2d pivotWorldCoords = cameraAtPress_.viewMatrix().inverse() * pivotViewCoords;
+        core::Vec2d pivotViewCoordsNow = camera_.viewMatrix() * pivotWorldCoords;
         camera_.setCenter(camera_.center() - pivotViewCoords + pivotViewCoordsNow);
 
         update();
     }
 }
 
-void OpenGLViewer::mouseReleaseEvent(QMouseEvent* event)
+void OpenGLViewer::pointingDeviceRelease(const PointingDeviceEvent&)
 {
-    if (isSketching_ && event->button() == Qt::LeftButton) {
-        isSketching_ = false;
-    }
-    if (isRotating_ && event->button() == Qt::LeftButton) {
-        isRotating_ = false;
-    }
-    else if (isPanning_ && event->button() == Qt::MidButton) {
-        isPanning_ = false;
-    }
-    else if (isZooming_ && event->button() == Qt::RightButton) {
-        isZooming_ = false;
-    }
-}
-
-void OpenGLViewer::tabletEvent(QTabletEvent* event)
-{
-    // We store the pressure, and handle the event in:
-    // - mousePressEvent()
-    // - mouseMoveEvent()
-    // - mouseReleaseEvent()
-    //
-    // This is because Qt 5.6, at least on some plateform, generates
-    // the mouse event anyway even if we accept the tablet event, causing
-    // duplicates. The implementation here is the most reliable way I found to
-    // properly handle tablet events.
-    //
-    // Relevant: https://bugreports.qt.io/browse/QTBUG-47007
-
-    // Remember state
-    tabletPressure_ = event->pressure();
-    switch(event->type()) {
-    case QEvent::TabletPress:
-        isTabletEvent_ = true;
-        break;
-    case QEvent::TabletMove:
-        // nothing
-        break;
-    case QEvent::TabletRelease:
-        isTabletEvent_ = false;
-        break;
-    default:
-        // nothing
-        break;
-    }
-
-    // Ignore event to ensure that Qt generates a mouse event.
-    // Note: on some (but not all) systems, Qt generate the mouse event even
-    // when this event is accepted.
-    event->ignore();
+    isSketching_ = false;
+    isRotating_ = false;
+    isPanning_ = false;
+    isZooming_ = false;
 }
 
 void OpenGLViewer::keyPressEvent(QKeyEvent* event)
@@ -284,7 +374,7 @@ void OpenGLViewer::keyPressEvent(QKeyEvent* event)
         requestedTesselationMode_ = 2;
         update();
         break;
-    case Qt::Key_C:
+    case Qt::Key_P:
         showControlPoints_ = !showControlPoints_;
         update();
         break;
@@ -332,10 +422,17 @@ void OpenGLViewer::resizeGL(int w, int h)
 
 void OpenGLViewer::paintGL()
 {
+    // Measure rendering time
+    renderTask_.start();
+
     OpenGLFunctions* f = openGLFunctions();
 
     // Transfer to GPU any data out-of-sync with CPU
+    updateTask_.start();
     updateGLResources_();
+    updateTask_.stop();
+
+    drawTask_.start();
 
     // Clear color and depth buffer
     f->glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -349,7 +446,7 @@ void OpenGLViewer::paintGL()
 
     // Draw triangles
     if (polygonMode_ > 0) {
-        glPolygonMode(GL_FRONT_AND_BACK, (polygonMode_ == 1) ? GL_LINE : GL_FILL);
+        f->glPolygonMode(GL_FRONT_AND_BACK, (polygonMode_ == 1) ? GL_LINE : GL_FILL);
         for (CurveGLResources& r: curveGLResources_) {
             shaderProgram_.setUniformValue(
                         colorLoc_,
@@ -366,7 +463,7 @@ void OpenGLViewer::paintGL()
     // Draw control points
     if (showControlPoints_) {
         shaderProgram_.setUniformValue(colorLoc_, 1.0f, 0.0f, 0.0f, 1.0f);
-        glPointSize(10.0);
+        f->glPointSize(10.0);
         for (CurveGLResources& r: curveGLResources_) {
             r.vaoControlPoints->bind();
             f->glDrawArrays(GL_POINTS, 0, r.numVerticesControlPoints);
@@ -376,6 +473,13 @@ void OpenGLViewer::paintGL()
 
     // Release shader program
     shaderProgram_.release();
+    drawTask_.stop();
+
+    // Complete measure of rendering time
+    renderTask_.stop();
+
+    // Inform that the render is completed
+    Q_EMIT renderCompleted();
 }
 
 void OpenGLViewer::cleanupGL()
@@ -389,13 +493,30 @@ void OpenGLViewer::cleanupGL()
 void OpenGLViewer::updateGLResources_()
 {
     // Create new GPU resources for new curves
-    int nCurvesInCpu = scene_->curves().size();
+    // XXX CLEAN + don't assume all elements are paths
+    // + make constant-time complexity
+    dom::Element* root = document_->rootElement();
+    int nCurvesInCpu = 0;
+    for (dom::Node* node : root->children()) {
+        if (dom::Element::cast(node)) {
+            ++nCurvesInCpu;
+        }
+    }
+    paths_.resize(nCurvesInCpu);
+    int i = 0;
+    for (dom::Node* node : root->children()) {
+        if (dom::Element* path = dom::Element::cast(node)) {
+            paths_[i] = path;
+            ++i;
+        }
+    }
     int nCurvesInGpu = curveGLResources_.size();
     for (int i = nCurvesInGpu; i < nCurvesInCpu; ++i) {
         createCurveGLResources_(i);
     }
 
     // Destroy GPU resources for deleted curves
+    // XXX why the decreasing loop index?
     for (int i = nCurvesInGpu - 1; i >= nCurvesInCpu; --i) {
         destroyCurveGLResources_(i);
     }
@@ -464,11 +585,24 @@ void OpenGLViewer::createCurveGLResources_(int)
 
 void OpenGLViewer::updateCurveGLResources_(int i)
 {
-    assert(i >= 0);
+    assert(i >= 0); // TODO convert all asserts to VGC_CORE_ASSERT
     assert(i < curveGLResources_.size());
-    assert(i < scene_->curves().size());
+    //assert(i < scene_->curves().size());
     CurveGLResources& r = curveGLResources_[i];
-    const geometry::Curve& curve = *scene_->curves()[i];
+
+    // Convert the dom::Path to a geometry::Curve
+    // XXX move this logic to dom::Path
+    dom::Element* path = paths_[i];
+    core::Vec2dArray positions = path->getAttribute(POSITIONS).getVec2dArray();
+    core::DoubleArray widths = path->getAttribute(WIDTHS).getDoubleArray();
+    core::Color color = path->getAttribute(COLOR).getColor();
+    VGC_CORE_ASSERT(positions.size() == widths.size());
+    int nControlPoints = positions.size();
+    geometry::Curve curve;
+    curve.setColor(color);
+    for (int i = 0; i < nControlPoints; ++i) {
+        curve.addControlPoint(positions[i], widths[i]);
+    }
 
     // Triangulate the curve
     double maxAngle = 0.05;
@@ -481,13 +615,13 @@ void OpenGLViewer::updateCurveGLResources_(int i)
         minQuads = 10;
         maxQuads = 10;
     }
-    std::vector<geometry::Vec2d> triangulation =
+    std::vector<core::Vec2d> triangulation =
             curve.triangulate(maxAngle, minQuads, maxQuads);
 
     // Convert triangles to single-precision and transfer to GPU
     r.numVerticesTriangles = triangulation.size();
     std::vector<GLVertex> glVerticesTriangles;
-    for(const geometry::Vec2d& v: triangulation) {
+    for(const core::Vec2d& v: triangulation) {
         glVerticesTriangles.emplace_back((float)v[0], (float)v[1]);
     }
     r.vboTriangles.bind();
@@ -524,6 +658,50 @@ void OpenGLViewer::destroyCurveGLResources_(int)
 
     curveGLResources_.pop_back();
 }
+
+void OpenGLViewer::startCurve_(const core::Vec2d& p, double width)
+{
+    // XXX CLEAN
+
+    dom::Element* root = document_->rootElement();
+    dom::Element* path = dom::Element::create(root, PATH);
+
+    path->setAttribute(POSITIONS, core::Vec2dArray());
+    path->setAttribute(WIDTHS, core::DoubleArray());
+    path->setAttribute(COLOR, currentColor_);
+
+    continueCurve_(p, width);
+}
+
+void OpenGLViewer::continueCurve_(const core::Vec2d& p, double width)
+{
+    // XXX CLEAN
+
+    dom::Element* root = document_->rootElement();
+    dom::Element* path = dom::Element::cast(root->lastChild()); // I really need the casted version like lastChildElement()
+
+    if (path) {
+        // Should I make this more efficient? If so, we have a few choices:
+        // duplicate the API of arrays within value and provide fine-grain
+        // "changed" signals. And/or allow to pass a lambda that modifies the
+        // underlying value. The dom::Value will call the lambda to mutate the
+        // value, then emit a generic changed signal. I could also let clients
+        // freely mutate the value and trusteing them in sending a changed
+        // signal themselves.
+
+        core::Vec2dArray positions = path->getAttribute(POSITIONS).getVec2dArray();
+        core::DoubleArray widths = path->getAttribute(WIDTHS).getDoubleArray();
+
+        positions.append(p);
+        widths.append(width);
+
+        path->setAttribute(POSITIONS, positions);
+        path->setAttribute(WIDTHS, widths);
+
+        update();
+    }
+}
+
 
 } // namespace widgets
 } // namespace vgc

@@ -1,4 +1,4 @@
-// Copyright 2017 The VGC Developers
+// Copyright 2018 The VGC Developers
 // See the COPYRIGHT file at the top-level directory of this distribution
 // and at https://github.com/vgc/vgc/blob/master/COPYRIGHT
 //
@@ -84,10 +84,19 @@ private:
     core::PythonInterpreter* interpreter_;
 
     // Handling key presses
-    void inputMethodEvent(QInputMethodEvent*);
-    QVariant inputMethodQuery(Qt::InputMethodQuery) const;
+    QVariant inputMethodQuery(Qt::InputMethodQuery) const override;
+    void inputMethodEvent(QInputMethodEvent*) override;
     void keyPressEvent(QKeyEvent* e) override;
+    void keyReleaseEvent(QKeyEvent* e) override;
+    void mousePressEvent(QMouseEvent* e) override;
+    void mouseDoubleClickEvent(QMouseEvent* e) override;
+    void mouseReleaseEvent(QMouseEvent* e) override;
+    void contextMenuEvent(QContextMenuEvent* e) override;
+    void dropEvent(QDropEvent* e) override;
 
+    void beginReadOnlyProtection_(QMouseEvent* e);
+    void beginReadOnlyProtection_(const QTextCursor&);
+    void endProtectPreviousBlocks_();
     int currentLineNumber_() const;
 
     // Code blocks. This is a sorted list of 0-indexed
@@ -124,7 +133,7 @@ private:
 /// via Console::margin. However, it was unclear how to achieve this in the
 /// given time constraints, which is why we adopted this simpler solution.
 ///
-class ConsoleMargin : public QWidget
+class VGC_WIDGETS_API ConsoleMargin : public QWidget
 {
     Q_OBJECT
 

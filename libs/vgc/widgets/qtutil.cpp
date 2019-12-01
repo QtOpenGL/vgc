@@ -1,4 +1,4 @@
-// Copyright 2017 The VGC Developers
+// Copyright 2018 The VGC Developers
 // See the COPYRIGHT file at the top-level directory of this distribution
 // and at https://github.com/vgc/vgc/blob/master/COPYRIGHT
 //
@@ -54,6 +54,16 @@ core::Color fromQt(const QColor& c)
                        c.greenF(),
                        c.blueF(),
                        c.alphaF());
+}
+
+QPointF toQt(const core::Vec2d& v)
+{
+    return QPointF(v[0], v[1]);
+}
+
+core::Vec2d fromQt(const QPointF& v)
+{
+    return core::Vec2d(v.x(), v.y());
 }
 
 } // namespace widgets

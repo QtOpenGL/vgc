@@ -1,4 +1,4 @@
-// Copyright 2017 The VGC Developers
+// Copyright 2018 The VGC Developers
 // See the COPYRIGHT file at the top-level directory of this distribution
 // and at https://github.com/vgc/vgc/blob/master/COPYRIGHT
 //
@@ -23,8 +23,20 @@
 #include <vgc/core/algorithm.h>
 #include <vgc/core/math.h>
 #include <vgc/core/python.h>
-#include <vgc/core/resources.h>
 #include <vgc/widgets/qtutil.h>
+
+// Returns whether this key event is about pressing the Enter or Return key.
+//
+namespace {
+bool isEnterKey_(const QKeyEvent* event)
+{
+    return event->key() == Qt::Key_Enter ||
+           event->key() == Qt::Key_Return ||
+           event->text() == "\n" ||
+           event->text() == "\r" ||
+           event->text() == "\r\n";
+}
+} // namespace
 
 // Notes:
 //
@@ -48,8 +60,8 @@
 //   https://github.com/qt-creator/qt-creator/blob/master/src/plugins/texteditor/texteditor.h
 
 namespace {
-bool isTextInsertionOrDeletion_(QKeyEvent* e) {
-    return !e->text().isEmpty();
+bool isTextInsertionOrDeletion_(QKeyEvent* event) {
+    return isEnterKey_(event) || !event->text().isEmpty();
 }
 } // namespace
 
@@ -62,7 +74,13 @@ int lineNumber_(const QTextCursor& cursor) {
 // Finds the code block corresponding to this line number. More specifically,
 // we are looking for the value codeBlockIndex such that:
 //
-//   codeBlocks_[codeBlockIndex] <= lineNumber < codeBlocks_[codeBlockIndex + 1]
+//   (A) codeBlocks_[codeBlockIndex] <= lineNumber < codeBlocks_[codeBlockIndex + 1]
+//
+// or simply:
+//
+//   (B) codeBlockIndex = codeBlocks_.size() - 1
+//
+// in case lineNumber is greater or equal to all elements in codeBlocks.
 //
 // The codeBlockIndex is modified in-place. If the previous value is -1, then
 // no assumption is made and the code block is found from scratch.
@@ -74,8 +92,17 @@ namespace {
 void updateCodeBlockIndex_(int lineNumber, const std::vector<int>& codeBlocks, int& codeBlockIndex)
 {
     if (codeBlockIndex == -1) {
-        // The first time, we use a binary search
-        codeBlockIndex = vgc::core::upper_bound(codeBlocks, lineNumber) - 1;
+        // The first time, we use a binary search.
+        // 1. Find index i such that lineNumber < codeBlocks_[i]
+        int i = vgc::core::upper_bound(codeBlocks, lineNumber);
+        // 2. If found, then we are in case (A)
+        if (i != -1) {
+            codeBlockIndex = i - 1;
+        }
+        // 3. Otherwise, we are in case (B)
+        else {
+            codeBlockIndex = codeBlocks.size() - 1;
+        }
     }
     else {
         // The subsequent times, we simply advance one by one
@@ -102,7 +129,7 @@ bool isFirstLineOfCodeBlock_(int lineNumber, const std::vector<int>& codeBlocks,
 }
 } // namespace
 
-// Returns whether the line number is the first line of its code block.
+// Returns whether the enter key was pressed in the last  number is the first line of its code block.
 //
 // If you need to call this repetitively and know what you are doing, you can
 // use the overload taking the extra parameter codeBlockIndexHint for better
@@ -125,7 +152,7 @@ Console::Console(
 
     QPlainTextEdit(parent),
     interpreter_(interpreter)
-{    
+{
     codeBlocks_.push_back(0);
 
     // Handling of dead keys. See [1].
@@ -262,25 +289,42 @@ void Console::paintEvent(QPaintEvent* event)
                                    && cursorPosition < blockPosition + blockLength;
 
             // Determine whether we should draw the cursor in the current loop
-            // iteration, and whether to draw it as selection or as line
+            // iteration, and whether to draw it as block or as line
             bool drawCursorNow = drawCursor && isCursorInBlock;
-            bool drawCursorAsSelection = drawCursorNow
-                                         && overwriteMode()
-                                         && cursorPosition < blockPosition + blockLength - 1;
-            bool drawCursorAsLine = drawCursorNow && !drawCursorAsSelection;
+            bool drawCursorAsBlock = drawCursorNow && overwriteMode();
+            bool drawCursorAsLine = drawCursorNow && !drawCursorAsBlock;
 
-            // Add cursor as selection
-            if (drawCursorAsSelection) {
-                QTextLayout::FormatRange formatRange;
-                formatRange.start = cursorPosition - blockPosition;
-                formatRange.length = 1;
-                formatRange.format.setForeground(palette().base());
-                formatRange.format.setBackground(palette().text());
-                selections.append(formatRange);
+            QTextLayout* layout = block.layout();
+
+            if (drawCursorAsBlock) {
+                int relativePos = cursorPosition - blockPosition;
+
+                // When cursor is not at the line end
+                // then we can use selections to display the block cursor
+                if (cursorPosition < blockPosition + blockLength - 1) {
+                    QTextLayout::FormatRange formatRange;
+                    formatRange.start = relativePos;
+                    formatRange.length = 1;
+                    formatRange.format.setForeground(palette().base());
+                    formatRange.format.setBackground(palette().text());
+                    selections.append(formatRange);
+                }
+
+                // Cursor is at line end, we have to draw cursor block manually
+                // Selection with fore- and background is not needed here
+                // Because there are no characters below the cursor
+                else {
+                    QTextLine line = layout->lineForTextPosition(relativePos);
+
+                    QRectF lineRect = line.rect();
+                    lineRect.moveTop(lineRect.top() + blockRect.top());
+                    lineRect.moveLeft(blockRect.left() + line.cursorToX(relativePos));
+                    lineRect.setWidth(layout->font().pointSizeF());
+                    painter.fillRect(lineRect, palette().text());
+                }
             }
 
             // Paint selection + text
-            QTextLayout* layout = block.layout();
             if (block.isVisible() && blockBottom >= eventTop) {
                 layout->draw(&painter, offset, selections, eventRect);
             }
@@ -317,6 +361,12 @@ void Console::resizeEvent(QResizeEvent* event)
 }
 
 // Handling of dead keys. See [1].
+QVariant Console::inputMethodQuery(Qt::InputMethodQuery) const
+{
+    return QVariant();
+}
+
+// Handling of dead keys. See [1].
 void Console::inputMethodEvent(QInputMethodEvent* event)
 {
     if (!event->commitString().isEmpty()) {
@@ -327,34 +377,18 @@ void Console::inputMethodEvent(QInputMethodEvent* event)
     event->accept();
 }
 
-// Handling of dead keys. See [1].
-QVariant Console::inputMethodQuery(Qt::InputMethodQuery) const
-{
-    return QVariant();
-}
-
-// XXX TODO ignore backspace if beginning of code block
-//
-// XXX TODO ignore deletion if selection or part of selection
-// is out of code block.
-
 void Console::keyPressEvent(QKeyEvent* e)
 {
     if (isTextInsertionOrDeletion_(e)) {
-
         // Prevent inserting or deleting text before last code block
-        // XXX This seems to also prevent copying via Ctrl+C, which
-        // generates e->text() == "\u0003".
-        if (currentLineNumber_() < codeBlocks_.back()) {
-            e->accept();
-        }
+        QTextCursor cursor = textCursor();
+        beginReadOnlyProtection_(cursor);
 
         // Process last code block on Ctrl + Enter
-        else if ((e->text() == "\r") &&
-                 (e->modifiers() & Qt::CTRL))
-        {
+        bool isEnterKey = isEnterKey_(e);
+        if (isEnterKey && (e->modifiers() & Qt::CTRL)) {
+
             // Move cursor's anchor+position to beginning of code block
-            QTextCursor cursor = textCursor();
             cursor.movePosition(QTextCursor::StartOfLine);
             while (lineNumber_(cursor) > codeBlocks_.back()) {
                 cursor.movePosition(QTextCursor::Up);
@@ -375,7 +409,7 @@ void Console::keyPressEvent(QKeyEvent* e)
             // QString::replace() to replace these characters with newlines."
             //
             QString codeBlock = cursor.selectedText();
-            codeBlock.replace("\u2029", "\n");
+            codeBlock.replace(QChar(QChar::ParagraphSeparator), QChar(QChar::LineFeed));
 
             // Deselect
             cursor.movePosition(QTextCursor::NoMove, QTextCursor::MoveAnchor);
@@ -385,9 +419,7 @@ void Console::keyPressEvent(QKeyEvent* e)
             setTextCursor(cursor);
 
             // Insert a new line by processing Ctrl+Enter as if it was a
-            // regular Enter (at least under my Linux environment, Ctrl+Enter
-            // does not insert anything in a QTextEdit, reason why we clear the
-            // modifiers)
+            // regular Enter with no modifier.
             e->setModifiers(Qt::NoModifier);
             QPlainTextEdit::keyPressEvent(e);
 
@@ -396,20 +428,180 @@ void Console::keyPressEvent(QKeyEvent* e)
 
             // Update code blocks
             codeBlocks_.push_back(currentLineNumber_());
+
+            // Clear Undo/Redo Stack to prevent going back to previous block
+            document()->clearUndoRedoStacks();
         }
 
-        // Normal insertion/deletion of character, including newlines
+        // If Ctrl isn't down, then Enter should be processed as a regular
+        // Enter with no modifiers. Indeed, on some platforms, some
+        // combinations of modifiers may insert a line-break `\r` with no
+        // corresponding line-feed `\n`, messing up the console line numbering.
+        else if (isEnterKey) {
+            e->setModifiers(Qt::NoModifier);
+            QPlainTextEdit::keyPressEvent(e);
+        }
+
+        // Prevent backspace from deleting last code block
+        // checking:
+        //  1. backspace
+        //  2. last code block
+        //  3. start of the block
+        //  4. not selection, so you can still select
+        //         everything inside code block and delete it
+        else if ((e->key() == Qt::Key_Backspace) &&
+                 (cursor.blockNumber() == codeBlocks_.back()) &&
+                 (cursor.atBlockStart()) &&
+                 (!cursor.hasSelection()))
+        {
+            e->accept();
+        }
+
+        // Normal insertion/deletion of character
         else {
             QPlainTextEdit::keyPressEvent(e);
         }
     }
+
+    // Toggle overwrite mode on 'insert' key without any modifiers
+    else if ((e->key() == Qt::Key_Insert) &&
+             (e->modifiers() == Qt::NoModifier))
+    {
+        setOverwriteMode(!overwriteMode());
+        e->accept();
+    }
+
     else {
         // Anything which is not an insertion or deletion, such as:
         // - Key modifiers
         // - Navigation (arrows, home, end, page up/down, etc.)
         // - Complex input methods (dead key, Chinese character composition, etc.)
+        //
+        // Note: we do not call beginReadOnlyProtection_() in this code
+        // path, because otherwise keyboard navigation would not work in
+        // already-interpreted code blocks (= cursor would not move when
+        // pressing navigation keys).
+        //
         QPlainTextEdit::keyPressEvent(e);
     }
+
+    // Manually call update to repaint the whole text edit. Otherwise, rendering
+    // artefacts can occur when a too small area of the text edit is repainted.
+    //
+    // See: https://github.com/vgc/vgc/issues/55
+    //
+    // We could be less conservative and only call update in the known cases causing
+    // artefacts (e.g., switching to non-overwrite mode), but we decided to be on
+    // the safe side, as there is really no reasons to save a few ms here, if any.
+    //
+    if (e->isAccepted()) {
+        update();
+    }
+}
+
+void Console::keyReleaseEvent(QKeyEvent* e)
+{
+    QPlainTextEdit::keyReleaseEvent(e);
+    endProtectPreviousBlocks_();
+}
+
+void Console::mousePressEvent(QMouseEvent* e)
+{
+    beginReadOnlyProtection_(e);
+    QPlainTextEdit::mousePressEvent(e);
+}
+
+void Console::mouseDoubleClickEvent(QMouseEvent* e)
+{
+    beginReadOnlyProtection_(e);
+    QPlainTextEdit::mouseDoubleClickEvent(e);
+}
+
+void Console::mouseReleaseEvent(QMouseEvent* e)
+{
+    // We have to protect here again to prevent chinese dialog
+    // to show up when we are selection from current to previous block
+    beginReadOnlyProtection_(e);
+
+    // If we remove selection with left button then we have to set readonly twice
+    // to fix the bug where the first character is not interpreted as chinese input
+    // see PR #46 - first code comment
+    if (e->button() == Qt::LeftButton) {
+        bool hadSelection = textCursor().hasSelection();
+        QPlainTextEdit::mouseReleaseEvent(e);
+
+        if (hadSelection && !textCursor().hasSelection()) {
+            endProtectPreviousBlocks_();
+        }
+    }
+
+    else {
+        QPlainTextEdit::mouseReleaseEvent(e);
+    }
+
+    endProtectPreviousBlocks_();
+}
+
+// Removes readonly after opening context menu
+void Console::contextMenuEvent(QContextMenuEvent* e)
+{
+    QPlainTextEdit::contextMenuEvent(e);
+    endProtectPreviousBlocks_();
+}
+
+void Console::dropEvent(QDropEvent* e)
+{
+    QTextCursor cursor = cursorForPosition(e->pos());
+    beginReadOnlyProtection_(cursor);
+
+    QPlainTextEdit::dropEvent(e);
+
+    // We have to move cursor to drop position
+    // because of a graphical glitch that still shows
+    // drop position after the event
+    setTextCursor(cursor);
+    endProtectPreviousBlocks_();
+}
+
+void Console::beginReadOnlyProtection_(QMouseEvent* e)
+{
+    // On mouse event, we have to check where the cursor would be
+    QTextCursor cursor = cursorForPosition(e->pos());
+
+    // If there is a selection, we should always use the real cursor
+    // Except on middle mouse click to allow copy on Linux
+    QTextCursor realCursor = textCursor();
+
+    if ((realCursor.hasSelection()) &&
+        (e->button() != Qt::MiddleButton))
+    {
+        cursor = realCursor;
+    }
+
+    beginReadOnlyProtection_(cursor);
+
+    // Right Mouse Click does not move cursor
+    // We have to move it ourselves to prevent pasting inside previous code blocks
+    // And when there is no selection so we can still copy selections
+    if (e->button() == Qt::RightButton && !realCursor.hasSelection()) {
+        setTextCursor(cursor);
+    }
+}
+
+// Prevents write on already interpreted python code
+void Console::beginReadOnlyProtection_(const QTextCursor& cursor)
+{
+    // Allow edits if and only if:
+    // - Selection is empty and cursor is in last (= non-interpreted) code block , or
+    // - Selection is non-empty and is fully contained in last code block
+    QTextCursor c2 = cursor;
+    c2.setPosition(cursor.selectionStart());
+    setReadOnly(lineNumber_(c2) < codeBlocks_.back());
+}
+
+void Console::endProtectPreviousBlocks_()
+{
+    setReadOnly(false);
 }
 
 int Console::currentLineNumber_() const

@@ -1,4 +1,4 @@
-// Copyright 2017 The VGC Developers
+// Copyright 2018 The VGC Developers
 // See the COPYRIGHT file at the top-level directory of this distribution
 // and at https://github.com/vgc/vgc/blob/master/COPYRIGHT
 //
@@ -17,24 +17,24 @@
 #ifndef VGC_SCENE_API_H
 #define VGC_SCENE_API_H
 
-#include <vgc/core/export.h>
+/// \file vgc/scene/api.h
+/// \brief Defines symbol visibility macros for defining shared library API.
+///
+/// Please read vgc/core/dll.h for details.
+///
+
+#include <vgc/core/dll.h>
 
 #if defined(VGC_SCENE_STATIC)
 #    define VGC_SCENE_API
-#    define VGC_SCENE_API_TEMPLATE_CLASS(...)
-#    define VGC_SCENE_API_TEMPLATE_STRUCT(...)
-#    define VGC_SCENE_LOCAL
+#    define VGC_SCENE_API_HIDDEN
 #else
 #    if defined(VGC_SCENE_EXPORTS)
-#        define VGC_SCENE_API VGC_CORE_EXPORT
-#        define VGC_SCENE_API_TEMPLATE_CLASS(...) VGC_CORE_EXPORT_TEMPLATE(class, __VA_ARGS__)
-#        define VGC_SCENE_API_TEMPLATE_STRUCT(...) VGC_CORE_EXPORT_TEMPLATE(struct, __VA_ARGS__)
+#        define VGC_SCENE_API VGC_CORE_DLL_EXPORT
 #    else
-#        define VGC_SCENE_API VGC_CORE_IMPORT
-#        define VGC_SCENE_API_TEMPLATE_CLASS(...) VGC_CORE_IMPORT_TEMPLATE(class, __VA_ARGS__)
-#        define VGC_SCENE_API_TEMPLATE_STRUCT(...) VGC_CORE_IMPORT_TEMPLATE(struct, __VA_ARGS__)
+#        define VGC_SCENE_API VGC_CORE_DLL_IMPORT
 #    endif
-#    define SCENE_LOCAL VGC_CORE_HIDDEN
+#    define VGC_SCENE_API_HIDDEN VGC_CORE_DLL_HIDDEN
 #endif
 
 #endif // VGC_SCENE_API_H

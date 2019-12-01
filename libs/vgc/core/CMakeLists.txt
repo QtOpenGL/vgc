@@ -7,33 +7,62 @@ vgc_add_library(core
     HEADER_FILES
         algorithm.h
         api.h
+        assert.h
+        charutil.h
         color.h
         colors.h
-        export.h
+        compiler.h
+        dll.h
+        doublearray.h
+        epsilon.h
+        exceptions.h
+        float2int.h
+        int.h
+        int2float.h
         io.h
+        limits.h
+        logging.h
+        mat4d.h
         math.h
         object.h
+        os.h
+        paths.h
+        performancelog.h
         python.h
         random.h
-        resources.h
         signal.h
-        timer.h
+        stopwatch.h
+        streamutil.h
+        stringid.h
+        stringutil.h
+        vec2d.h
+        vec2darray.h
 
     CPP_FILES
         algorithm.cpp
+        charutil.h
         color.cpp
+        doublearray.cpp
+        exceptions.cpp
         io.cpp
+        logging.cpp
+        mat4d.cpp
         math.cpp
         object.cpp
+        paths.cpp
+        performancelog.cpp
         python.cpp
         random.cpp
-        resources.cpp
         signal.cpp
-        timer.cpp
+        stopwatch.cpp
+        streamutil.cpp
+        stringid.cpp
+        stringutil.cpp
+        vec2d.cpp
+        vec2darray.cpp
 
     COMPILE_DEFINITIONS
-        -DVGC_CORE_PYTHON_PATH_="${VGC_PYTHON_OUTPUT_DIRECTORY}"
-        -DVGC_CORE_RESOURCES_PATH_="${VGC_RESOURCES_OUTPUT_DIRECTORY}"
 )
 
 add_subdirectory(wraps)
+add_subdirectory(tests)

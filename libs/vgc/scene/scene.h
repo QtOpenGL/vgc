@@ -1,4 +1,4 @@
-// Copyright 2017 The VGC Developers
+// Copyright 2018 The VGC Developers
 // See the COPYRIGHT file at the top-level directory of this distribution
 // and at https://github.com/vgc/vgc/blob/master/COPYRIGHT
 //
@@ -14,6 +14,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// XXX This whole 'scene' library will be soon deleted; it is temporarily kept
+// here for documentation of the signal mechanism which yet has to be ported to
+// 'dom'
+
 #ifndef VGC_SCENE_SCENE_H
 #define VGC_SCENE_SCENE_H
 
@@ -22,8 +26,8 @@
 #include <vgc/core/color.h>
 #include <vgc/core/object.h>
 #include <vgc/core/signal.h>
+#include <vgc/core/vec2d.h>
 #include <vgc/geometry/curve.h>
-#include <vgc/geometry/vec2d.h>
 #include <vgc/scene/api.h>
 
 namespace vgc {
@@ -31,18 +35,23 @@ namespace scene {
 
 VGC_CORE_DECLARE_PTRS(Scene);
 
-class VGC_SCENE_API Scene: public core::Object<Scene>
+class VGC_SCENE_API Scene: public core::Object
 {
-public:
+    VGC_CORE_OBJECT(Scene)
+
+protected:
+    /// Creates a new Scene.
+    ///
     Scene();
 
+public:
     /// Clears the scene.
     ///
     void clear();
 
     // XXX This is a temporary test. Final API will be different
-    void startCurve(const geometry::Vec2d& p, double width = 1.0);
-    void continueCurve(const geometry::Vec2d& p, double width = 1.0);
+    void startCurve(const core::Vec2d& p, double width = 1.0);
+    void continueCurve(const core::Vec2d& p, double width = 1.0);
     const std::vector<geometry::CurveSharedPtr>& curves() const {
         return curves_;
     }

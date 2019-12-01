@@ -1,4 +1,4 @@
-// Copyright 2017 The VGC Developers
+// Copyright 2018 The VGC Developers
 // See the COPYRIGHT file at the top-level directory of this distribution
 // and at https://github.com/vgc/vgc/blob/master/COPYRIGHT
 //
@@ -18,8 +18,9 @@
 
 #include <QApplication>
 #include <vgc/core/algorithm.h>
-#include <vgc/core/resources.h>
 #include <vgc/core/io.h>
+#include <vgc/core/os.h>
+#include <vgc/core/paths.h>
 #include <vgc/widgets/qtutil.h>
 
 namespace vgc {
@@ -30,7 +31,21 @@ void setApplicationStyleSheet(const std::string& name)
     if (qApp) {
         std::string path = core::resourcePath(name);
         std::string s = core::readFile(path);
+
+        // Convert resource paths to absolute paths
         s = core::replace(s, "vgc:/", core::resourcesPath() + "/");
+
+        // Set platform dependent font size
+        #if defined(VGC_CORE_OS_WINDOWS)
+            std::string fontSize = "10.5pt";
+        #elif defined(VGC_CORE_OS_MACOS)
+            std::string fontSize = "13pt";
+        #else
+            std::string fontSize = "11pt";
+        #endif
+        s = core::replace(s, "@font-size", fontSize);
+
+        // Set stylesheet
         qApp->setStyleSheet(toQt(s));
     }
 }

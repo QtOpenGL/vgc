@@ -1,4 +1,4 @@
-// Copyright 2017 The VGC Developers
+// Copyright 2018 The VGC Developers
 // See the COPYRIGHT file at the top-level directory of this distribution
 // and at https://github.com/vgc/vgc/blob/master/COPYRIGHT
 //
@@ -17,6 +17,7 @@
 #ifndef VGC_CORE_COLOR_H
 #define VGC_CORE_COLOR_H
 
+#include <string>
 #include <vgc/core/api.h>
 
 namespace vgc {
@@ -164,9 +165,80 @@ public:
         return Color(*this) /= s;
     }
 
+    /// Returns whether the two given Color \p c1 and \p c2 are equal.
+    ///
+    friend bool operator==(const Color& c1, const Color& c2) {
+        return c1.data_[0] == c2.data_[0] &&
+               c1.data_[1] == c2.data_[1] &&
+               c1.data_[2] == c2.data_[2] &&
+               c1.data_[3] == c2.data_[3];
+    }
+
+    /// Returns whether the two given Color \p c1 and \p c2 are different.
+    ///
+    friend bool operator!=(const Color& c1, const Color& c2) {
+        return !(c1 == c2);
+    }
+
+    /// Compares the two Color \p c1 and \p c2 using the lexicographic
+    /// order.
+    ///
+    friend bool operator<(const Color& c1, const Color& c2) {
+        return ( (c1.data_[0] < c2.data_[0]) ||
+               (!(c2.data_[0] < c1.data_[0]) &&
+               ( (c1.data_[1] < c2.data_[1]) ||
+               (!(c2.data_[1] < c1.data_[1]) &&
+               ( (c1.data_[2] < c2.data_[2]) ||
+               (!(c2.data_[2] < c1.data_[2]) &&
+               ( (c1.data_[3] < c2.data_[3]))))))));
+    }
+
+    /// Compares the two Color \p c1 and \p c2 using the lexicographic
+    /// order.
+    ///
+    friend bool operator<=(const Color& c1, const Color& c2) {
+        return !(c2 < c1);
+    }
+
+    /// Compares the two Color \p c1 and \p c2 using the lexicographic
+    /// order.
+    ///
+    friend bool operator>(const Color& c1, const Color& c2) {
+        return c2 < c1;
+    }
+
+    /// Compares the two Color \p c1 and \p c2 using the lexicographic
+    /// order.
+    ///
+    friend bool operator>=(const Color& c1, const Color& c2) {
+        return !(c1 < c2);
+    }
+
 private:
     double data_[4];
 };
+
+/// Returns a string representation of the given Color. The returned string is
+/// a valid CSS Color Module Level 3, see:
+///
+/// https://www.w3.org/TR/2018/PR-css-color-3-20180315/
+///
+/// Example:
+/// \code
+/// Color red(1, 0, 0);
+/// Color halfGreen(0, 1, 0, 0.5);
+/// std::cout << toString(red);       // writes "rgb(255, 0, 0)"
+/// std::cout << toString(halfGreen); // writes "rgba(0, 255, 0, 0.5)"
+/// \endcode
+///
+VGC_CORE_API
+std::string toString(const Color& c);
+
+/// Converts the given string into a Color. Raises ParseError if the given
+/// string does not represent a Color.
+///
+VGC_CORE_API
+Color toColor(const std::string& s);
 
 } // namespace core
 } // namespace vgc
