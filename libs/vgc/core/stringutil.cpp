@@ -1,4 +1,4 @@
-// Copyright 2018 The VGC Developers
+// Copyright 2020 The VGC Developers
 // See the COPYRIGHT file at the top-level directory of this distribution
 // and at https://github.com/vgc/vgc/blob/master/COPYRIGHT
 //
@@ -23,19 +23,19 @@
 namespace vgc {
 namespace core {
 
-std::string toString(unsigned char x)
+std::string toString(char x)
+{
+    return std::to_string(x);
+}
+
+std::string toString(signed char x)
 {
     return std::to_string(static_cast<int>(x));
 }
 
-std::string toString(int x)
+std::string toString(unsigned char x)
 {
-    return std::to_string(x);
-}
-
-std::string toString(long long int x)
-{
-    return std::to_string(x);
+    return std::to_string(static_cast<int>(x));
 }
 
 std::string toString(double x)

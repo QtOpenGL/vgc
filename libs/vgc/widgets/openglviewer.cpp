@@ -1,4 +1,4 @@
-// Copyright 2018 The VGC Developers
+// Copyright 2020 The VGC Developers
 // See the COPYRIGHT file at the top-level directory of this distribution
 // and at https://github.com/vgc/vgc/blob/master/COPYRIGHT
 //
@@ -37,7 +37,7 @@ namespace {
 
 // Returns the file path of a shader file as a QString
 QString shaderPath_(const std::string& name) {
-    std::string path = core::resourcePath("opengl/shaders/" + name);
+    std::string path = core::resourcePath("graphics/opengl/" + name);
     return toQt(path);
 }
 
